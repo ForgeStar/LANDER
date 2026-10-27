@@ -101,7 +101,7 @@ window.addEventListener("resize", fitCanvas);
 fitCanvas();
 
 // ---------------- Constants ----------------
-const WORLD_W = 4000;          // terrain span, world units
+const WORLD_W = 900;           // terrain span, world units (most of it visible at 1x, like the original)
 const GRAV = 28;               // world units / s^2
 const THRUST = 62;             // main engine accel along nose
 const ROT_SPEED = 2.6;         // rad/s while a rotate key is held
@@ -113,8 +113,8 @@ const ABORT_COST = 120;        // arcade: 120..180
 const LEG = 14.25;             // center -> feet, world units
 const MAX_SPEED = 260;
 const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.0;
-const ZOOM_IN_ALT = 380;       // altitude below this -> close-up
-const ZOOM_OUT_ALT = 560;      // hysteresis: above this -> wide
+const ZOOM_IN_ALT = 150;       // altitude below this -> close-up (ground in view well before this)
+const ZOOM_OUT_ALT = 260;      // hysteresis: climb above this -> wide again
 
 // ---------------- Game State ----------------
 let state = "attract"; // attract | ready | play | result | gameover
@@ -131,6 +131,7 @@ let resultCrashed = false;
 // Lander
 let lander = { x: 2000, y: -200, vx: 0, vy: 0, angle: 0 };
 let thrusting = false;
+let thrustT = 0;               // sustained-thrust timer (long flame state)
 
 // Camera (zoom)
 let camScale = ZOOM_FAR, camTarget = ZOOM_FAR;
@@ -161,7 +162,7 @@ function genTerrain(m) {
   const slots = [];
   for (let i = 0; i < nPads; i++) {
     const cx = (i + 1) / (nPads + 1) * WORLD_W;
-    slots.push({ x: clamp(cx + rand(-220, 220), 260, WORLD_W - 260),
+    slots.push({ x: clamp(cx + rand(-80, 80), 140, WORLD_W - 140),
                  w: 0, mult: 0, used: false });
   }
   // Wider pads get smaller multipliers: 2X .. 5X
@@ -189,8 +190,8 @@ function genTerrain(m) {
       x = Math.min(WORLD_W, x0 + slot.w);
       pts.push({ x, y, pad: slot.mult });
     } else {
-      const dx = rand(46, 112);
-      let dy = rand(-1, 1) * rand(26, 92) * steep;
+      const dx = rand(26, 58);
+      let dy = rand(-1, 1) * rand(18, 64) * steep;
       // occasional flat-ish stretch so the range has floors
       if (Math.random() < 0.18) dy *= 0.3;
       y = clamp(y + dy, 150, 400);
@@ -248,16 +249,18 @@ function spawnLander() {
   // Bias spawn toward a pad region so the first mission is learnable
   const pads = terrain.segs.filter(s => s.pad);
   const target = pads.length ? pads[Math.floor(Math.random() * pads.length)] : null;
-  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-500, 500), 120, WORLD_W - 120)
-                    : rand(500, WORLD_W - 500);
+  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-180, 180), 90, WORLD_W - 90)
+                    : rand(150, WORLD_W - 150);
   lander.x = sx;
-  lander.y = groundYat(sx) - rand(560, 780);
+  // Spawn low enough that the moonscape is in view from the first frame
+  lander.y = groundYat(sx) - rand(120, 190);
   lander.vx = rand(-14, 14);
   lander.vy = rand(4, 18);
   lander.angle = 0;
   camScale = ZOOM_FAR; camTarget = ZOOM_FAR;
   camX = lander.x; camY = lander.y;
   missionTime = 0;
+  thrustT = 0;
   lowFuelT = 0;
 }
 function startMission() {
@@ -289,6 +292,7 @@ function abort() {
 
 function updatePlay(dt) {
   thrusting = (keyThrust || touchThrust) && fuel > 0;
+  thrustT = thrusting ? Math.min(1.5, thrustT + dt) : 0;  // sustained-burn state
 
   // Rotate (burns a little fuel, like the original)
   let rot = 0;
@@ -558,13 +562,15 @@ function drawLander(sx, sy) {
     ctx.closePath();
     ctx.stroke();
   }
-  // Engine flame (straight flickering lines from the bell)
+  // Engine flame (straight flickering lines from the bell). Short taps get a
+  // short burst; sustained burns (>0.35 s) ramp a longer flame.
   if (thrusting && (state === "play" || state === "attract")) {
-    const f = 11.25 + 4 + Math.random() * 6;
+    const sustain = Math.min(1, Math.max(0, thrustT - 0.35) / 0.25);
+    const f = 11.25 + 4 + Math.random() * 6 + 9 * sustain;
     ctx.beginPath();
     ctx.moveTo(0, 11.25);    ctx.lineTo(0, f);
-    ctx.moveTo(2.5, 11.25);  ctx.lineTo(3.5, f - 4);
-    ctx.moveTo(-2.5, 11.25); ctx.lineTo(-3.5, f - 4);
+    ctx.moveTo(2.5, 11.25);  ctx.lineTo(3.5, f - 4 - 5 * sustain);
+    ctx.moveTo(-2.5, 11.25); ctx.lineTo(-3.5, f - 4 - 5 * sustain);
     ctx.stroke();
   }
   ctx.restore();
@@ -1019,8 +1025,8 @@ window.addEventListener("pointerdown", primeAudio, { passive: true });
 // ---------------- Main loop ----------------
 genTerrain(1);
 spawnLander(); // scenery for the attract screen
-lander.x = WORLD_W / 2 - 320;
-lander.y = terrain.low - 240; // hover visibly above the range, clear of the title
+lander.x = 150;              // left of the title block (camera clamps at W/2)
+lander.y = terrain.low - 235; // hover visibly above the range, clear of the title
 
 function frame(now) {
   let dt = Math.min((now - lastTime) / 1000, 0.05);
