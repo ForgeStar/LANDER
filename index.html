@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LANDER — Classic Arcade LUNAR LANDER Clone</title>
+<!-- X.com player card: playable in-post embed -->
+<meta name="twitter:card" content="player">
+<meta name="twitter:site" content="@_RexNebular_">
+<meta name="twitter:title" content="LANDER — Classic Arcade LUNAR LANDER Clone">
+<meta name="twitter:description" content="The 1979 Atari vector classic in a cabinet: jagged moonscape, multiplier pads, zoom-in close-up. Up to thrust, arrows to rotate, X to abort. Playable right here in X.">
+<meta name="twitter:image" content="https://forgestar.github.io/LANDER/preview.png">
+<meta name="twitter:player" content="https://forgestar.github.io/LANDER/">
+<meta name="twitter:player:width" content="480">
+<meta name="twitter:player:height" content="480">
+<style>
+  html, body {
+    margin: 0; height: 100%;
+    background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Courier New", monospace;
+    user-select: none;
+  }
+  /* Cabinet face: bezel art with a TRANSPARENT screen window */
+  #bezel { position: relative; line-height: 0; }
+  #bezel::before {
+    content: "";
+    display: block;
+    width: 100%;
+    padding-top: 100%; /* bezel.png is 1024x1024 */
+  }
+  /* Screen window = transparent hole in bezel.png
+     (measured: left 165/1024, top 368/1024, 692x519 — exact 4:3) */
+  #screen {
+    position: absolute;
+    left: 16.11328125%; top: 35.9375%;
+    width: 67.578125%; height: 50.68359375%;
+    background: #000;
+  }
+  canvas {
+    display: block;
+    background: #000;
+    width: 100%; height: 100%;
+    position: absolute;
+    top: 0; left: 0;
+  }
+  /* CRT shader layer overlays the game canvas; it is smooth, not pixelated */
+  #fx { image-rendering: auto; }
+  /* Bezel art sits on top of the screen; its transparent hole shows the game */
+  #panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  #hint {
+    position: fixed; bottom: 8px; left: 0; right: 0;
+    text-align: center; color: #556; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="bezel">
+  <div id="screen">
+    <canvas id="game" width="580" height="435"></canvas>
+    <canvas id="fx" width="580" height="435"></canvas>
+  </div>
+  <img id="panel" src="bezel.webp" alt="" onerror="this.onerror=null;this.src='bezel.png'">
+</div>
+<div id="hint">&uarr;/W thrust &middot; &larr;/&rarr; or A/D rotate &middot; X abort &middot; tap to start &middot; drag: up = thrust, side = rotate &middot; P pause &middot; M mute &middot; C CRT: <span id="crtlabel">Glass</span></div>
+<script>
+"use strict";
+// ============================================================
+// LANDER CLONE — single-file, vanilla JS + canvas
+// Reference: Atari's 1979 arcade LUNAR LANDER ("llander"),
+// the first vector arcade game.
+//   - HUD: SCORE / TIME / FUEL left, ALTITUDE / HORIZONTAL
+//     SPEED / VERTICAL SPEED (with direction arrows) right
+//   - Jagged straight-line moonscape, flat pads with 2X..5X
+//     multipliers (narrower pad = bigger multiplier)
+//   - View zooms in to a close-up as you near the surface
+//   - Fuel pool persists across missions; +50 on a good landing
+//   - Good landing 50 pts x multiplier, hard 15 x, crash 5
+//   - Crash ends the game
+// Cabinet: LANDER bezel art + CRT glass shader (same as PONG).
+// ============================================================
+
+const W = 580, H = 435;
+const cv = document.getElementById("game");
+cv.width = W; cv.height = H;
+const ctx = cv.getContext("2d");
+
+// Scale the cabinet to fit the viewport (same approach as PONG).
+const PANEL_W = 1024, PANEL_H = 1024; // bezel.png
+const bezel = document.getElementById("bezel");
+function fitCanvas() {
+  const scale = Math.min(1, window.innerWidth / PANEL_W, window.innerHeight / PANEL_H);
+  bezel.style.width = Math.floor(PANEL_W * scale) + "px";
+}
+window.addEventListener("resize", fitCanvas);
+fitCanvas();
+
+// ---------------- Constants ----------------
+const WORLD_W = 4000;          // terrain span, world units
+const GRAV = 28;               // world units / s^2
+const THRUST = 62;             // main engine accel along nose
+const ROT_SPEED = 2.6;         // rad/s while a rotate key is held
+const MAX_TILT = 1.40;         // ~80 deg, arcade limited to +-90
+const FUEL_START = 750;        // arcade default
+const BURN_THRUST = 30;        // fuel / s while main engine on
+const BURN_ROT = 4;            // fuel / s while rotating
+const ABORT_COST = 120;        // arcade: 120..180
+const LEG = 11;                // center -> feet, world units
+const MAX_SPEED = 260;
+const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.0;
+const ZOOM_IN_ALT = 380;       // altitude below this -> close-up
+const ZOOM_OUT_ALT = 560;      // hysteresis: above this -> wide
+
+// ---------------- Game State ----------------
+let state = "attract"; // attract | ready | play | result | gameover
+let stateTimer = 0;
+let score = 0;
+let fuel = FUEL_START;
+let mission = 1;
+let missionTime = 0;
+let muted = false;
+let lastTime = performance.now();
+let resultText = [];
+let resultCrashed = false;
+
+// Lander
+let lander = { x: 2000, y: -200, vx: 0, vy: 0, angle: 0 };
+let thrusting = false;
+
+// Camera (zoom)
+let camScale = ZOOM_FAR, camTarget = ZOOM_FAR;
+let camX = lander.x, camY = lander.y;
+
+// Input
+let keyThrust = false, keyRotL = false, keyRotR = false;
+let touchThrust = false, touchRotL = false, touchRotR = false;
+let abortHeld = false;
+
+// ---------------- Terrain ----------------
+// Piecewise-linear polyline of STRAIGHT segments (no curves, like the
+// original vector hardware). Pad segments are flat and carry a multiplier.
+let terrain = { pts: [], segs: [] };
+let stars = [];
+
+function rand(a, b) { return a + Math.random() * (b - a); }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+function genTerrain(m) {
+  // Difficulty ramps with mission (capped): steeper ranges, narrower pads
+  const diff = Math.min(m, 8);
+  const steep = 0.65 + 0.10 * diff;
+  const padShrink = Math.max(0.55, 1 - 0.07 * (diff - 1));
+
+  // Plan 4-5 pad slots across the world (not at the very edges)
+  const nPads = 4 + (Math.random() < 0.5 ? 1 : 0);
+  const slots = [];
+  for (let i = 0; i < nPads; i++) {
+    const cx = (i + 1) / (nPads + 1) * WORLD_W;
+    slots.push({ x: clamp(cx + rand(-220, 220), 260, WORLD_W - 260),
+                 w: 0, mult: 0, used: false });
+  }
+  // Wider pads get smaller multipliers: 2X .. 5X
+  const widths = slots.map(() => rand(1, 1)).sort((a, b) => b - a);
+  const mults = [2, 3, 4, 5];
+  slots.forEach((s, i) => {
+    s.w = Math.max(56, (60 + widths[i] * 90) * padShrink);
+    s.mult = mults[i % mults.length];
+  });
+
+  const pts = [];
+  let x = 0;
+  let y = rand(260, 330);
+  pts.push({ x, y });
+  let si = 0;
+  while (x < WORLD_W) {
+    // Start a pad when we reach its slot
+    let slot = null;
+    if (si < slots.length && x + 40 >= slots[si].x) slot = slots[si];
+    if (slot && !slot.used) {
+      slot.used = true;
+      si++;
+      y = clamp(y, 200, 385); // pads live on reachable shelves
+      const x0 = x;
+      x = Math.min(WORLD_W, x0 + slot.w);
+      pts.push({ x, y, pad: slot.mult });
+    } else {
+      const dx = rand(46, 112);
+      let dy = rand(-1, 1) * rand(26, 92) * steep;
+      // occasional flat-ish stretch so the range has floors
+      if (Math.random() < 0.18) dy *= 0.3;
+      y = clamp(y + dy, 150, 400);
+      x = Math.min(WORLD_W, x + dx);
+      pts.push({ x, y });
+    }
+  }
+  // Build segment list (flat segments that carry a pad flag are the pads)
+  const segs = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    segs.push({ x0: a.x, x1: b.x, y: a.y, pad: b.pad || 0 });
+  }
+  let low = 0;
+  for (const p of pts) low = Math.max(low, p.y); // lowest surface point
+  terrain = { pts, segs, low };
+
+  // Star field (sky-space, parallax when the camera moves)
+  stars = [];
+  for (let i = 0; i < 130; i++) {
+    stars.push({ x: rand(0, WORLD_W), y: rand(6, H - 60), r: Math.random() < 0.85 ? 1 : 2 });
+  }
+}
+
+function segAt(x) {
+  const s = terrain.segs;
+  if (x <= s[0].x0) return s[0];
+  if (x >= s[s.length - 1].x1) return s[s.length - 1];
+  let lo = 0, hi = s.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (s[mid].x1 < x) lo = mid + 1; else hi = mid;
+  }
+  return s[lo];
+}
+function groundYat(x) {
+  const p = terrain.pts;
+  x = clamp(x, 0, WORLD_W);
+  let lo = 0, hi = p.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (p[mid].x < x) lo = mid + 1; else hi = mid;
+  }
+  const a = p[lo - 1], b = p[lo];
+  if (b.x <= a.x) return a.y;
+  const t = (x - a.x) / (b.x - a.x);
+  return a.y + t * (b.y - a.y);
+}
+function altitude() {
+  return Math.max(0, groundYat(lander.x) - (lander.y + LEG));
+}
+
+// ---------------- Missions ----------------
+function spawnLander() {
+  // Bias spawn toward a pad region so the first mission is learnable
+  const pads = terrain.segs.filter(s => s.pad);
+  const target = pads.length ? pads[Math.floor(Math.random() * pads.length)] : null;
+  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-500, 500), 120, WORLD_W - 120)
+                    : rand(500, WORLD_W - 500);
+  lander.x = sx;
+  lander.y = groundYat(sx) - rand(560, 780);
+  lander.vx = rand(-14, 14);
+  lander.vy = rand(4, 18);
+  lander.angle = 0;
+  camScale = ZOOM_FAR; camTarget = ZOOM_FAR;
+  camX = lander.x; camY = lander.y;
+  missionTime = 0;
+  lowFuelT = 0;
+}
+function startMission() {
+  spawnLander();
+  state = "ready";
+  stateTimer = 1.4;
+  particles.length = 0;
+}
+function newGame() {
+  score = 0;
+  fuel = FUEL_START;
+  mission = 1;
+  genTerrain(mission);
+  startMission();
+}
+
+// ---------------- Physics ----------------
+function abort() {
+  if (abortHeld || state !== "play") return;
+  if (fuel < 40) return;
+  abortHeld = true;
+  setTimeout(() => abortHeld = false, 900);
+  lander.angle = 0;        // straighten
+  lander.vx = 0;           // kill sideways motion
+  lander.vy = -130;        // shove up, off the surface
+  fuel = Math.max(0, fuel - ABORT_COST);
+  sfx.abort();
+}
+
+function updatePlay(dt) {
+  thrusting = (keyThrust || touchThrust) && fuel > 0;
+
+  // Rotate (burns a little fuel, like the original)
+  let rot = 0;
+  if (keyRotL || touchRotL) rot -= 1;
+  if (keyRotR || touchRotR) rot += 1;
+  if (rot !== 0 && fuel > 0) {
+    lander.angle = clamp(lander.angle + rot * ROT_SPEED * dt, -MAX_TILT, MAX_TILT);
+    fuel = Math.max(0, fuel - BURN_ROT * dt);
+  }
+  // Main thrust along the nose
+  if (thrusting) {
+    lander.vx += Math.sin(lander.angle) * THRUST * dt;
+    lander.vy -= Math.cos(lander.angle) * THRUST * dt;
+    fuel = Math.max(0, fuel - BURN_THRUST * dt);
+  }
+  // Gravity
+  lander.vy += GRAV * dt;
+  // Speed clamp
+  const sp = Math.hypot(lander.vx, lander.vy);
+  if (sp > MAX_SPEED) { lander.vx *= MAX_SPEED / sp; lander.vy *= MAX_SPEED / sp; }
+
+  // Integrate with substeps so fast landers can't tunnel through cliffs
+  const steps = 4, h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    lander.x = clamp(lander.x + lander.vx * h, 40, WORLD_W - 40);
+    lander.y += lander.vy * h;
+    const gy = groundYat(lander.x);
+    if (lander.y + LEG >= gy) {
+      lander.y = gy - LEG;
+      onContact();
+      return;
+    }
+  }
+  missionTime += dt;
+
+  // Zoom: close-up when the surface is near
+  const alt = altitude();
+  camTarget = alt < ZOOM_IN_ALT ? ZOOM_NEAR : alt > ZOOM_OUT_ALT ? ZOOM_FAR : camTarget;
+  camScale += (camTarget - camScale) * Math.min(1, dt * 3.2);
+
+  // Low-fuel warning (arcade: high beep on almost-depleted tanks)
+  if (fuel > 0 && fuel < 60) {
+    lowFuelT -= dt;
+    if (lowFuelT <= 0) { sfx.lowFuel(); lowFuelT = 0.9; }
+  }
+}
+let lowFuelT = 0;
+
+function onContact() {
+  const seg = segAt(lander.x);
+  const onPad = seg.pad > 0 &&
+    lander.x >= seg.x0 + 6 && lander.x <= seg.x1 - 6;
+  const vDown = lander.vy;
+  if (onPad && vDown <= 10 && Math.abs(lander.vx) <= 12) {
+    // GOOD LANDING
+    const pts = 50 * seg.pad;
+    score += pts;
+    fuel = Math.min(1400, fuel + 50); // arcade fuel bonus
+    lander.vx = 0; lander.vy = 0;
+    resultText = ["GOOD LANDING", "+" + pts + " PTS", "FUEL +50"];
+    sfx.goodLanding();
+    endMission(false);
+  } else if (onPad && vDown <= 22 && Math.abs(lander.vx) <= 28) {
+    // HARD LANDING
+    const pts = 15 * seg.pad;
+    score += pts;
+    lander.vx = 0; lander.vy = 0;
+    resultText = ["HARD LANDING", "+" + pts + " PTS"];
+    sfx.hardLanding();
+    endMission(false);
+  } else {
+    // CRASH (slope, cliff, or too fast)
+    score += 5;
+    resultText = ["CRASHED", "+5 PTS"];
+    sfx.crash();
+    explode(lander.x, lander.y);
+    endMission(true);
+  }
+}
+function endMission(crashed) {
+  resultCrashed = crashed;
+  state = "result";
+  stateTimer = crashed ? 2.6 : 2.8;
+}
+
+// ---------------- Explosion particles ----------------
+let particles = [];
+function explode(x, y) {
+  particles = [];
+  for (let i = 0; i < 26; i++) {
+    const a = rand(0, Math.PI * 2), v = rand(20, 130);
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30,
+                     life: rand(0.7, 1.6), max: 1.6 });
+  }
+}
+function updateParticles(dt) {
+  for (const p of particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += GRAV * 0.6 * dt;
+    p.life -= dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+
+// ---------------- Update ----------------
+function update(dt) {
+  updateParticles(dt);
+  if (state === "attract") {
+    // Idle drift for the attract screen
+    thrusting = false;
+    lander.x = clamp(lander.x + Math.sin(performance.now() / 900) * 30 * dt, 100, WORLD_W - 100);
+    lander.angle = Math.sin(performance.now() / 1400) * 0.35;
+    return;
+  }
+  if (state === "ready") {
+    stateTimer -= dt;
+    if (stateTimer <= 0) state = "play";
+    return;
+  }
+  if (state === "result") {
+    stateTimer -= dt;
+    if (stateTimer <= 0) {
+      if (resultCrashed) {
+        state = "gameover";
+      } else {
+        mission++;
+        genTerrain(mission);
+        startMission();
+      }
+    }
+    return;
+  }
+  if (state === "gameover") return;
+  if (state !== "play") return;
+  updatePlay(dt);
+}
+
+// ---------------- Rendering ----------------
+function w2sX(wx) { return (wx - camX) * camScale + W / 2; }
+function w2sY(wy) { return (wy - camY) * camScale + H / 2; }
+
+function drawStars() {
+  ctx.fillStyle = "#fff";
+  const par = 0.35;
+  for (const s of stars) {
+    let sx = (s.x - camX * par * camScale) % (W + 30);
+    if (sx < 0) sx += W + 30;
+    sx -= 15;
+    let sy = (s.y - (camY - 217) * 0.12 * camScale) % H;
+    if (sy < 0) sy += H;
+    if (sx > -2 && sx < W + 2 && sy > 0 && sy < H - 40) {
+      ctx.fillRect(sx, sy, s.r, s.r);
+    }
+  }
+}
+
+function drawTerrain() {
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const pts = terrain.pts;
+  let started = false;
+  for (let i = 0; i < pts.length; i++) {
+    const sx = w2sX(pts[i].x), sy = w2sY(pts[i].y);
+    if (sx < -60 || sx > W + 60) { started = false; continue; }
+    if (!started) { ctx.moveTo(sx, sy); started = true; }
+    else ctx.lineTo(sx, sy);
+  }
+  ctx.stroke();
+  // Pad multiplier labels (arcade: "2X", "5X" above the shelf)
+  ctx.font = "10px 'Courier New', monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  for (const s of terrain.segs) {
+    if (!s.pad) continue;
+    const mx = w2sX((s.x0 + s.x1) / 2);
+    if (mx < -30 || mx > W + 30) continue;
+    const my = w2sY(s.y);
+    if (my < -10 || my > H + 10) continue;
+    ctx.fillText(s.pad + "X", mx, my - 6);
+  }
+}
+
+function drawLander(sx, sy) {
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(lander.angle);
+  const k = camScale;
+  ctx.scale(k, k);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1 / k; // 1 screen pixel, vector-style
+  ctx.beginPath();
+  // Angular body (straight lines only)
+  ctx.moveTo(0, -11);    // nose
+  ctx.lineTo(5, -5);
+  ctx.lineTo(5, 3);
+  ctx.lineTo(3, 8);
+  ctx.lineTo(-3, 8);
+  ctx.lineTo(-5, 3);
+  ctx.lineTo(-5, -5);
+  ctx.closePath();
+  ctx.stroke();
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo(3, 8);  ctx.lineTo(7, LEG);  ctx.lineTo(10, LEG);
+  ctx.moveTo(-3, 8); ctx.lineTo(-7, LEG); ctx.lineTo(-10, LEG);
+  ctx.stroke();
+  // Engine flame (straight flickering lines)
+  if (thrusting && (state === "play" || state === "attract")) {
+    const f = 13 + Math.random() * 7;
+    ctx.beginPath();
+    ctx.moveTo(0, 8);  ctx.lineTo(0, f);
+    ctx.moveTo(2, 8);  ctx.lineTo(3, f - 3);
+    ctx.moveTo(-2, 8); ctx.lineTo(-3, f - 3);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawParticles() {
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const p of particles) {
+    const sx = w2sX(p.x), sy = w2sY(p.y);
+    ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + p.vx * 0.03, sy + p.vy * 0.03);
+  }
+  ctx.globalAlpha = 1;
+  ctx.stroke();
+}
+
+// ---------------- HUD (matches the original layout) ----------------
+function fmtTime(t) {
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+}
+function drawArrow(x, y, dir) {
+  // dir: 1 right, -1 left, 2 down, -2 up — straight vector arrow
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (dir === 1 || dir === -1) {
+    const d = dir;
+    ctx.moveTo(x, y); ctx.lineTo(x + 14 * d, y);
+    ctx.moveTo(x + 14 * d, y); ctx.lineTo(x + 9 * d, y - 3);
+    ctx.moveTo(x + 14 * d, y); ctx.lineTo(x + 9 * d, y + 3);
+  } else {
+    const d = dir / 2; // 1 = down, -1 = up
+    ctx.moveTo(x, y); ctx.lineTo(x, y + 14 * d);
+    ctx.moveTo(x, y + 14 * d); ctx.lineTo(x - 3, y + 9 * d);
+    ctx.moveTo(x, y + 14 * d); ctx.lineTo(x + 3, y + 9 * d);
+  }
+  ctx.stroke();
+}
+function drawHUD() {
+  ctx.fillStyle = "#fff";
+  ctx.font = "13px 'Courier New', monospace";
+  ctx.textAlign = "left";
+  const L = 40, LV = 150;
+  let y = 30;
+  ctx.fillText("SCORE", L, y);
+  ctx.textAlign = "right";
+  ctx.fillText(String(score).padStart(4, "0"), LV, y);
+  ctx.textAlign = "left";
+  y += 17;
+  ctx.fillText("TIME", L, y);
+  ctx.textAlign = "right";
+  ctx.fillText(fmtTime(missionTime), LV, y);
+  ctx.textAlign = "left";
+  y += 17;
+  ctx.fillText("FUEL", L, y);
+  ctx.textAlign = "right";
+  ctx.fillText(String(Math.floor(fuel)).padStart(4, "0"), LV, y);
+
+  // Right block: ALTITUDE / HORIZONTAL SPEED / VERTICAL SPEED + arrows
+  const LX = 320, VX = 480;
+  ctx.textAlign = "left";
+  y = 30;
+  ctx.fillText("ALTITUDE", LX, y);
+  ctx.textAlign = "right";
+  ctx.fillText(String(Math.floor(altitude())), VX, y);
+  ctx.textAlign = "left";
+  y += 17;
+  ctx.fillText("HORIZONTAL SPEED", LX, y);
+  ctx.textAlign = "right";
+  ctx.fillText(String(Math.floor(Math.abs(lander.vx))), VX, y);
+  if (Math.abs(lander.vx) >= 0.5) drawArrow(488, y - 4, lander.vx > 0 ? 1 : -1);
+  y += 17;
+  ctx.fillText("VERTICAL SPEED", LX, y);
+  ctx.textAlign = "right";
+  ctx.fillText(String(Math.floor(Math.abs(lander.vy))), VX, y);
+  if (Math.abs(lander.vy) >= 0.5) drawArrow(494, y - 4, lander.vy > 0 ? 2 : -2);
+  ctx.textAlign = "left";
+}
+
+function centerText(lines, yStart, font, color, glow) {
+  ctx.textAlign = "center";
+  ctx.font = font;
+  ctx.fillStyle = color;
+  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
+  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, yStart + i * 22));
+  ctx.shadowBlur = 0;
+  ctx.textAlign = "left";
+}
+
+function render() {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  // Camera follows the lander; when the surface is near, bias the view so
+  // the moonscape sits in the lower part of the screen (like the arcade)
+  const halfW = W / (2 * camScale), halfH = H / (2 * camScale);
+  camX = clamp(lander.x, halfW, WORLD_W - halfW);
+  camY = Math.min(lander.y + 0.05 * H / camScale,
+                  terrain.low - halfH + 28);
+
+  drawStars();
+  drawTerrain();
+
+  const inScene = (state !== "gameover") && !(state === "result" && resultCrashed);
+  if (inScene) drawLander(w2sX(lander.x), w2sY(lander.y));
+  drawParticles();
+
+  if (state === "attract") {
+    centerText(["LANDER"], H / 2 - 46, "bold 44px 'Courier New', monospace", "#fff", 14);
+    centerText(["A LUNAR LANDING SIMULATION"], H / 2 - 12, "13px 'Courier New', monospace", "#999", 0);
+    centerText(["PRESS ANY KEY TO START"], H / 2 + 40, "14px 'Courier New', monospace",
+               (Math.floor(performance.now() / 500) % 2 ? "#fff" : "#666"), 0);
+    centerText(["UP THRUST  -  ARROWS ROTATE  -  X ABORT"], H / 2 + 66,
+               "12px 'Courier New', monospace", "#778", 0);
+  } else if (state === "ready") {
+    centerText(["MISSION " + mission], H / 2 + 40, "bold 20px 'Courier New', monospace", "#fff", 8);
+  } else if (state === "result") {
+    centerText(resultText, H / 2 - 10, "bold 20px 'Courier New', monospace",
+               resultText[0] === "CRASHED" ? "#fff" : "#fff", 8);
+    if (stateTimer < 1.2) {
+      centerText(["GET READY"], H / 2 + 44, "13px 'Courier New', monospace", "#889", 0);
+    }
+  } else if (state === "gameover") {
+    centerText(["GAME OVER"], H / 2 - 40, "bold 30px 'Courier New', monospace", "#fff", 12);
+    centerText(["FINAL SCORE  " + String(score).padStart(4, "0")], H / 2 - 4,
+               "15px 'Courier New', monospace", "#fff", 0);
+    centerText(["PRESS ANY KEY TO PLAY AGAIN"], H / 2 + 34, "13px 'Courier New', monospace",
+               (Math.floor(performance.now() / 500) % 2 ? "#fff" : "#666"), 0);
+  } else if (state === "paused") {
+    centerText(["PAUSED"], H / 2, "bold 24px 'Courier New', monospace", "#fff", 10);
+  }
+
+  if (state !== "attract" && state !== "gameover") drawHUD();
+}
+
+// ---------------- CRT glass (WebGL shader layer) ----------------
+// Same shader as PONG / Puck Man: game renders to 2D canvas, uploaded as
+// a texture and drawn through a fragment shader (scanlines, barrel
+// distortion / tube curvature, glass sheen).
+let fx = document.getElementById("fx");
+const crtlabel = document.getElementById("crtlabel");
+let fxGL = null;
+
+function initFX() {
+  const gl = fx.getContext("webgl", { alpha: false });
+  if (!gl) return;
+  const VS = [
+    "attribute vec2 a_pos;",
+    "varying vec2 vUv;",
+    "void main() {",
+    "  vUv = vec2(0.5 + a_pos.x * 0.5, 0.5 - a_pos.y * 0.5);",
+    "  gl_Position = vec4(a_pos, 0.0, 1.0);",
+    "}",
+  ].join("\n");
+  const FS = [
+    "precision highp float;",
+    "varying vec2 vUv;",
+    "uniform sampler2D u_tex;",
+    "uniform vec2 u_res;",
+    "uniform float u_time;",
+    "uniform int u_mode; // 0 pass-through, 1 arcade CRT, 2 glass TV",
+    "vec3 glow8(sampler2D t, vec2 p, vec2 px) {",
+    "  vec3 s = vec3(0.0);",
+    "  s += texture2D(t, p + vec2( px.x, 0.0)).rgb;",
+    "  s += texture2D(t, p + vec2(-px.x, 0.0)).rgb;",
+    "  s += texture2D(t, p + vec2(0.0,  px.y)).rgb;",
+    "  s += texture2D(t, p + vec2(0.0, -px.y)).rgb;",
+    "  s += texture2D(t, p + vec2(2.0*px.x, 0.0)).rgb;",
+    "  s += texture2D(t, p + vec2(-2.0*px.x, 0.0)).rgb;",
+    "  s += texture2D(t, p + vec2(0.0, 2.0*px.y)).rgb;",
+    "  s += texture2D(t, p + vec2(0.0, -2.0*px.y)).rgb;",
+    "  return s * 0.125;",
+    "}",
+    "void main() {",
+    "  vec2 uv = vUv;",
+    "  vec2 px = 1.0 / u_res;",
+    "  vec2 c = uv - 0.5;",
+    "  float r2 = dot(c, c);",
+    "  vec3 col;",
+    "  if (u_mode == 2) { // glass TV — barrel distortion + scanlines + vignette",
+    "    vec2 suv = 0.5 + c * (1.0 + 0.18 * r2);",
+    "    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) {",
+    "      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return;",
+    "    }",
+    "    col.r = texture2D(u_tex, suv + vec2(0.5, 0.4) * px).r + 0.02;",
+    "    col.g = texture2D(u_tex, suv + vec2(0.0, -0.6) * px).g + 0.02;",
+    "    col.b = texture2D(u_tex, suv + vec2(-0.9, 0.0) * px).b + 0.02;",
+    "    col += (glow8(u_tex, suv, px) - col) * 0.30;",
+    "    col = clamp(col * 1.3 + 0.75 * col * col + 1.25 * col * col * col * col * col, vec3(0.0), vec3(10.0));",
+    "    float vig = 0.01 + 16.0 * uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y);",
+    "    col *= 1.3 * sqrt(vig);",
+    "    float scans = clamp(0.35 + 0.18 * sin(u_time * 6.0 - suv.y * u_res.y * 1.5), 0.0, 1.0);",
+    "    col *= pow(scans, 0.9);",
+    "    col *= 1.0 - 0.23 * clamp(mod(suv.x * u_res.x, 3.0) / 2.0, 0.0, 1.0);",
+    "    vec3 fc = max(col, vec3(0.0));",
+    "    col = (fc * (6.2 * fc + 0.5)) / (fc * (6.2 * fc + 1.7) + 0.06);",
+    "    float d = uv.x * 0.65 + uv.y * 0.75;",
+    "    float sheen = exp(-pow((d - 1.08) / 0.16, 2.0)) * 0.05;",
+    "    sheen += exp(-pow(length(uv - vec2(0.16, 0.14)) / 0.30, 2.0)) * 0.035;",
+    "    col += sheen;",
+    "    // --- glass reflections (procedural, ShaderGlass-style) ---",
+    "    float fres = clamp(0.10 + 1.8 * r2, 0.0, 1.0);",
+    "    float bandPos = uv.x * 0.7 + uv.y * 0.55 - 0.25 - 0.05 * sin(u_time * 0.15);",
+    "    float refBand = exp(-pow(bandPos / 0.20, 2.0));",
+    "    float refEdge = exp(-pow((bandPos + 0.26) / 0.045, 2.0));",
+    "    float refLight = exp(-pow(length(uv - vec2(0.16, 0.18)) / 0.34, 2.0));",
+    "    vec3 refl = refBand * vec3(0.10, 0.115, 0.13);",
+    "    refl += refEdge * vec3(0.055, 0.065, 0.075);",
+    "    refl += refLight * vec3(0.09, 0.085, 0.075);",
+    "    col += refl * (0.45 + 0.55 * fres);",
+    "    col *= 1.0 + 0.008 * sin(u_time * 377.0);",
+    "  } else if (u_mode == 1) { // arcade CRT: scanlines + grille + glow",
+    "    col = texture2D(u_tex, uv).rgb;",
+    "    float row = fract(uv.y * u_res.y * 0.5);",
+    "    col *= 0.80 + 0.20 * cos(row * 6.28318);",
+    "    col *= 0.95 + 0.05 * cos(fract(uv.x * u_res.x) * 3.14159);",
+    "    col += (glow8(u_tex, uv, px) - col) * 0.40;",
+    "    col = vec3(pow(max(col.r, 0.0), 0.625), pow(max(col.g, 0.0), 0.625), pow(max(col.b, 0.0), 0.625));",
+    "    col *= 1.0 - 0.30 * smoothstep(0.18, 0.50, r2);",
+    "  } else {",
+    "    col = texture2D(u_tex, uv).rgb;",
+    "  }",
+    "  gl_FragColor = vec4(col, 1.0);",
+    "}",
+  ].join("\n");
+
+  function makeShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s)); return null;
+    }
+    return s;
+  }
+  const vs = makeShader(gl.VERTEX_SHADER, VS);
+  const fs = makeShader(gl.FRAGMENT_SHADER, FS);
+  if (!vs || !fs) return;
+  const p = gl.createProgram();
+  gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(p)); return;
+  }
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  fxGL = {
+    gl, p, tex,
+    aPos: gl.getAttribLocation(p, "a_pos"),
+    uTex: gl.getUniformLocation(p, "u_tex"),
+    uRes: gl.getUniformLocation(p, "u_res"),
+    uTime: gl.getUniformLocation(p, "u_time"),
+    uMode: gl.getUniformLocation(p, "u_mode"),
+  };
+}
+
+function setupFxEvents() {
+  fx.addEventListener("webglcontextlost", (e) => {
+    e.preventDefault();
+    fxGL = null;
+    setCRT(0);
+  });
+  fx.addEventListener("webglcontextrestored", () => {
+    initFX();
+    setCRT(2);
+  });
+}
+
+initFX();
+setupFxEvents();
+
+let crtMode = 2; // 0 off, 1 arcade, 2 glass
+const CRT_NAMES = ["Off", "Arcade", "Glass"];
+function setCRT(m) {
+  crtMode = fxGL ? m : 0;
+  fx.style.display = crtMode === 0 ? "none" : "block";
+  if (crtlabel) crtlabel.textContent = fxGL ? CRT_NAMES[crtMode] : "No WebGL";
+}
+function fxRender(t) {
+  const f = fxGL;
+  if (!f || crtMode === 0 || f.gl.isContextLost()) return;
+  const { gl, p, tex } = f;
+  gl.viewport(0, 0, fx.width, fx.height);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+  gl.useProgram(p);
+  gl.enableVertexAttribArray(f.aPos);
+  gl.vertexAttribPointer(f.aPos, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform1i(f.uTex, 0);
+  gl.uniform2f(f.uRes, W, H);
+  gl.uniform1f(f.uTime, t);
+  gl.uniform1i(f.uMode, crtMode);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+setCRT(2);
+
+// ---------------- Audio (Web Audio API — same approach as PONG) ----------------
+let actx = null;
+function audio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  if (actx && actx.state === "suspended") actx.resume();
+  return actx;
+}
+// Prime the Web Audio pipeline inside user gestures (needed for the X
+// player-card iframe, where audio can only unlock from a gesture).
+function primeAudio() {
+  const a = audio();
+  if (!a) return;
+  if (a.state === "suspended") a.resume();
+  try {
+    const o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(a.destination);
+    g.gain.setValueAtTime(0.0001, a.currentTime);
+    o.start(); o.stop(a.currentTime + 0.06);
+  } catch (e) {}
+  ensureEngine();
+}
+function beep(freq, dur, type, vol, slideTo) {
+  if (muted) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || "square";
+  o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + dur);
+  g.gain.setValueAtTime(vol || 0.08, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+// Continuous engine rumble (low sawtooth, gain follows thrust)
+let engine = null;
+function ensureEngine() {
+  const a = audio(); if (!a || engine) return;
+  try {
+    const o = a.createOscillator(), o2 = a.createOscillator();
+    const g = a.createGain(), g2 = a.createGain();
+    o.type = "sawtooth"; o.frequency.value = 52;
+    o2.type = "square"; o2.frequency.value = 104;
+    g.gain.value = 0; g2.gain.value = 0.35;
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(a.destination);
+    o.start(); o2.start();
+    engine = { g, o, o2 };
+  } catch (e) {}
+}
+function setEngine(on) {
+  if (!engine) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime;
+  engine.g.gain.cancelScheduledValues(t);
+  engine.g.gain.setTargetAtTime(on && !muted ? 0.10 : 0.0001, t, 0.04);
+}
+function noiseBurst(dur, vol, lowpass) {
+  if (muted) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime;
+  const len = Math.floor(a.sampleRate * dur);
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = a.createBufferSource(); src.buffer = buf;
+  const g = a.createGain();
+  const f = a.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lowpass;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(f); f.connect(g); g.connect(a.destination);
+  src.start(t);
+}
+const sfx = {
+  goodLanding: () => { beep(660, 0.1, "sine", 0.09); setTimeout(() => beep(880, 0.1, "sine", 0.09), 110); setTimeout(() => beep(1320, 0.18, "sine", 0.09), 220); },
+  hardLanding: () => { beep(440, 0.12, "sine", 0.09); setTimeout(() => beep(392, 0.18, "sine", 0.09), 130); },
+  crash:     () => { noiseBurst(0.6, 0.35, 900); beep(160, 0.5, "square", 0.1, 40); },
+  abort:     () => { beep(180, 0.3, "sawtooth", 0.08, 720); },
+  lowFuel:   () => beep(1250, 0.09, "square", 0.06),
+};
+
+// ---------------- Input ----------------
+function startOrRestart() {
+  if (state === "attract") newGame();
+  else if (state === "gameover") newGame();
+}
+window.addEventListener("keydown", (e) => {
+  primeAudio();
+  if (e.code === "ArrowUp" || e.code === "KeyW") { keyThrust = true; e.preventDefault(); }
+  if (e.code === "ArrowLeft" || e.code === "KeyA") { keyRotL = true; e.preventDefault(); }
+  if (e.code === "ArrowRight" || e.code === "KeyD") { keyRotR = true; e.preventDefault(); }
+  if (e.code === "KeyX" || e.code === "Space") { abort(); e.preventDefault(); }
+  if (e.code === "KeyP") {
+    if (state === "play") state = "paused";
+    else if (state === "paused") state = "play";
+  }
+  if (e.code === "KeyM") { muted = !muted; if (muted) setEngine(false); }
+  if (e.code === "KeyC") { setCRT((crtMode + 1) % 3); return; }
+  if (state === "attract" || state === "gameover") startOrRestart();
+});
+window.addEventListener("keyup", (e) => {
+  if (e.code === "ArrowUp" || e.code === "KeyW") keyThrust = false;
+  if (e.code === "ArrowLeft" || e.code === "KeyA") keyRotL = false;
+  if (e.code === "ArrowRight" || e.code === "KeyD") keyRotR = false;
+});
+
+// ---------------- Pointer / touch input ----------------
+// Tap = start / restart (also works in the X player-card iframe).
+// Drag = steer: up component thrusts, side component rotates.
+let touchOrigin = null;
+let touchMoved = false;
+const SWIPE_MIN = 12;
+function beginGesture(e) {
+  primeAudio();
+  const t = e.touches && e.touches[0];
+  if (t) { touchOrigin = { x: t.clientX, y: t.clientY }; touchMoved = false; }
+  touchThrust = touchRotL = touchRotR = false;
+}
+function moveGesture(e) {
+  const t = e.touches && e.touches[0];
+  if (!t || !touchOrigin) return;
+  const dx = t.clientX - touchOrigin.x, dy = t.clientY - touchOrigin.y;
+  if (Math.abs(dx) > SWIPE_MIN || Math.abs(dy) > SWIPE_MIN) touchMoved = true;
+  if (!touchMoved) return;
+  touchThrust = dy < -SWIPE_MIN;
+  touchRotL = dx < -SWIPE_MIN;
+  touchRotR = dx > SWIPE_MIN;
+}
+function endGesture(e) {
+  primeAudio();
+  const c = (e.changedTouches && e.changedTouches[0]) || e;
+  const sx = touchOrigin ? touchOrigin.x : c.clientX;
+  const sy = touchOrigin ? touchOrigin.y : c.clientY;
+  touchOrigin = null;
+  const dx = c.clientX - sx, dy = c.clientY - sy;
+  if (Math.abs(dx) < SWIPE_MIN && Math.abs(dy) < SWIPE_MIN && !touchMoved) {
+    startOrRestart();
+  }
+  touchThrust = touchRotL = touchRotR = false;
+  touchMoved = false;
+}
+window.addEventListener("touchstart", beginGesture, { passive: true });
+window.addEventListener("touchmove", moveGesture, { passive: true });
+window.addEventListener("touchend", endGesture);
+window.addEventListener("click", endGesture);
+window.addEventListener("pointerdown", primeAudio, { passive: true });
+
+// ---------------- Main loop ----------------
+genTerrain(1);
+spawnLander(); // scenery for the attract screen
+lander.x = WORLD_W / 2 - 320;
+lander.y = terrain.low - 240; // hover visibly above the range, clear of the title
+
+function frame(now) {
+  let dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  update(dt);
+  render();
+  fxRender(now / 1000);
+  // Engine sound follows thrust state
+  setEngine(thrusting && state === "play" && !muted);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
