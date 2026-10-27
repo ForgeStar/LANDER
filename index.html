@@ -187,9 +187,9 @@ function genTerrain(m) {
     if (slot && !slot.used) {
       slot.used = true;
       si++;
-      y = clamp(y, 170, 375); // pads live on reachable shelves
       const x0 = x;
       x = Math.min(WORLD_W, x0 + slot.w);
+      // Pad = flat notch in the slope flow: same y at both ends, always level
       pts.push({ x, y, pad: slot.mult });
     } else {
       const dx = rand(18, 40);
