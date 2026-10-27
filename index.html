@@ -101,7 +101,7 @@ window.addEventListener("resize", fitCanvas);
 fitCanvas();
 
 // ---------------- Constants ----------------
-const WORLD_W = 900;           // terrain span, world units (most of it visible at 1x, like the original)
+const WORLD_W = 4000;          // terrain span, world units (scrolling world, like the arcade original)
 const GRAV = 28;               // world units / s^2
 const THRUST = 62;             // main engine accel along nose
 const ROT_SPEED = 2.6;         // rad/s while a rotate key is held
@@ -110,7 +110,8 @@ const FUEL_START = 750;        // arcade default
 const BURN_THRUST = 30;        // fuel / s while main engine on
 const BURN_ROT = 4;            // fuel / s while rotating
 const ABORT_COST = 120;        // arcade: 120..180
-const LEG = 14.25;             // center -> feet, world units
+const SHIP_SCALE = 0.75;       // ship sprite scale (25% smaller)
+const LEG = 14.25 * SHIP_SCALE; // center -> feet, world units
 const MAX_SPEED = 260;
 const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.0;
 const ZOOM_IN_ALT = 150;       // altitude below this -> close-up (ground in view well before this)
@@ -157,16 +158,16 @@ function genTerrain(m) {
   const steep = 0.65 + 0.10 * diff;
   const padShrink = Math.max(0.55, 1 - 0.07 * (diff - 1));
 
-  // Plan 3-4 pad slots across the world (not at the very edges)
-  const nPads = 3 + (Math.random() < 0.5 ? 1 : 0);  // few pads, mountains dominate
+  // Plan pad slots across the world (not at the very edges)
+  const nPads = 20 + (Math.random() < 0.5 ? 4 : 0);  // pads ~every 1/4 screen (arcade density)
   const slots = [];
   for (let i = 0; i < nPads; i++) {
     const cx = (i + 1) / (nPads + 1) * WORLD_W;
-    slots.push({ x: clamp(cx + rand(-80, 80), 140, WORLD_W - 140),
+    slots.push({ x: clamp(cx + rand(-40, 40), 150, WORLD_W - 150),
                  w: 0, mult: 0, used: false });
   }
   // Wider pads get smaller multipliers: 2X .. 5X
-  const widths = slots.map(() => rand(1, 1)).sort((a, b) => b - a);
+  const widths = slots.map(() => rand(0, 1)).sort((a, b) => b - a);  // small/med/large pads
   const mults = [2, 3, 4, 5];
   slots.forEach((s, i) => {
     s.w = Math.max(44, (48 + widths[i] * 42) * padShrink);
@@ -191,17 +192,18 @@ function genTerrain(m) {
       x = Math.min(WORLD_W, x0 + slot.w);
       pts.push({ x, y, pad: slot.mult });
     } else {
-      const dx = rand(26, 58);
+      const dx = rand(18, 40);
       // Real peaks, not a flat line: mostly keep climbing/falling in the
       // same direction (long straight slopes like the arcade), occasional
       // reversal and big push
-      if (Math.random() < 0.45) dir = -dir;
-      let mag = rand(24, 70);
-      if (Math.random() < 0.35) mag += rand(40, 90);
+      if (Math.random() < 0.45 && y > 120 && y < 380) dir = -dir;  // don't flip back into a bound
+      let mag = rand(30, 90);
+      if (Math.random() < 0.40) mag += rand(50, 110);
       let dy = dir * mag * steep;
-      // occasional flat-ish stretch so the range has floors
-      if (Math.random() < 0.18) dy *= 0.3;
-      y = clamp(y + dy, 120, 390);
+      // (pads are the only flat surfaces: the rest is steep relief)
+      y = clamp(y + dy, 120, 380);
+      if (y === 120 && dir < 0) dir = 1;   // hit a bound: turn back, no flat pins
+      if (y === 380 && dir > 0) dir = -1;
       x = Math.min(WORLD_W, x + dx);
       pts.push({ x, y });
     }
@@ -218,7 +220,7 @@ function genTerrain(m) {
 
   // Star field (sky-space, parallax when the camera moves)
   stars = [];
-  for (let i = 0; i < 130; i++) {
+  for (let i = 0; i < Math.round(WORLD_W * 0.14); i++) {
     stars.push({ x: rand(0, WORLD_W), y: rand(6, H - 60), r: Math.random() < 0.85 ? 1 : 2 });
   }
 }
@@ -256,8 +258,8 @@ function spawnLander() {
   // Bias spawn toward a pad region so the first mission is learnable
   const pads = terrain.segs.filter(s => s.pad);
   const target = pads.length ? pads[Math.floor(Math.random() * pads.length)] : null;
-  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-180, 180), 90, WORLD_W - 90)
-                    : rand(150, WORLD_W - 150);
+  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-250, 250), 140, WORLD_W - 140)
+                    : rand(300, WORLD_W - 300);
   lander.x = sx;
   // Spawn high: the camera pins to the moonscape and the ship falls in
   // from above the top of the screen (like the arcade original)
@@ -470,6 +472,23 @@ function drawTerrain() {
     else ctx.lineTo(sx, sy);
   }
   ctx.stroke();
+  // Pad shelves: thicker + glow pass so landing zones pop against the relief
+  ctx.lineWidth = 3;
+  ctx.shadowColor = "#fff";
+  ctx.shadowBlur = 7;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (!b.pad) continue;
+    const sx = w2sX(a.x), sy = w2sY(a.y);
+    const ex = w2sX(b.x), ey = w2sY(b.y);
+    if (Math.max(sx, ex) < -60 || Math.min(sx, ex) > W + 60) continue;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 1;
   // Pad multiplier labels (arcade: "2X", "5X" above the shelf)
   ctx.font = "10px 'Courier New', monospace";
   ctx.textAlign = "center";
@@ -488,7 +507,7 @@ function drawLander(sx, sy) {
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(lander.angle);
-  const k = camScale;
+  const k = camScale * SHIP_SCALE;
   ctx.scale(k, k);
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 1 / k; // 1 screen pixel, vector-style
