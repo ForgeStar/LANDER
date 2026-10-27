@@ -176,6 +176,7 @@ function genTerrain(m) {
   const pts = [];
   let x = 0;
   let y = rand(160, 260);
+  let dir = Math.random() < 0.5 ? -1 : 1;  // slope direction w/ persistence
   pts.push({ x, y });
   let si = 0;
   while (x < WORLD_W) {
@@ -191,10 +192,13 @@ function genTerrain(m) {
       pts.push({ x, y, pad: slot.mult });
     } else {
       const dx = rand(26, 58);
-      // Real peaks, not a flat line: modest steps plus occasional big pushes
+      // Real peaks, not a flat line: mostly keep climbing/falling in the
+      // same direction (long straight slopes like the arcade), occasional
+      // reversal and big push
+      if (Math.random() < 0.45) dir = -dir;
       let mag = rand(24, 70);
       if (Math.random() < 0.35) mag += rand(40, 90);
-      let dy = (Math.random() < 0.5 ? -1 : 1) * mag * steep;
+      let dy = dir * mag * steep;
       // occasional flat-ish stretch so the range has floors
       if (Math.random() < 0.18) dy *= 0.3;
       y = clamp(y + dy, 120, 390);
