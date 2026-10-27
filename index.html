@@ -110,7 +110,7 @@ const FUEL_START = 750;        // arcade default
 const BURN_THRUST = 30;        // fuel / s while main engine on
 const BURN_ROT = 4;            // fuel / s while rotating
 const ABORT_COST = 120;        // arcade: 120..180
-const LEG = 11;                // center -> feet, world units
+const LEG = 13;                // center -> feet, world units
 const MAX_SPEED = 260;
 const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.0;
 const ZOOM_IN_ALT = 380;       // altitude below this -> close-up
@@ -481,28 +481,43 @@ function drawLander(sx, sy) {
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 1 / k; // 1 screen pixel, vector-style
   ctx.beginPath();
-  // Angular body (straight lines only)
-  ctx.moveTo(0, -11);    // nose
-  ctx.lineTo(5, -5);
-  ctx.lineTo(5, 3);
-  ctx.lineTo(3, 8);
-  ctx.lineTo(-3, 8);
-  ctx.lineTo(-5, 3);
-  ctx.lineTo(-5, -5);
+  // Apollo-LM-style lander, straight lines only:
+  // boxy cabin (ascent stage) on a boxy descent stage, engine bell below.
+  // Square silhouette like the LM, not a tapered rocket.
+  ctx.moveTo(-4, -14);   // flat top
+  ctx.lineTo(4, -14);
+  ctx.lineTo(6, -11);    // chamfered cabin corner
+  ctx.lineTo(6, -2);     // cabin side (vertical)
+  ctx.lineTo(9, 2);      // short flare to descent stage
+  ctx.lineTo(9, 8);      // descent stage side (vertical)
+  ctx.lineTo(3, 10);
+  ctx.lineTo(3, LEG);    // engine bell
+  ctx.lineTo(-3, LEG);
+  ctx.lineTo(-3, 10);
+  ctx.lineTo(-9, 8);
+  ctx.lineTo(-9, 2);
+  ctx.lineTo(-6, -2);
+  ctx.lineTo(-6, -11);
   ctx.closePath();
   ctx.stroke();
-  // Legs
+  // Window
   ctx.beginPath();
-  ctx.moveTo(3, 8);  ctx.lineTo(7, LEG);  ctx.lineTo(10, LEG);
-  ctx.moveTo(-3, 8); ctx.lineTo(-7, LEG); ctx.lineTo(-10, LEG);
+  ctx.moveTo(-1.5, -12); ctx.lineTo(1.5, -12);
+  ctx.lineTo(1.5, -9);   ctx.lineTo(-1.5, -9);
+  ctx.closePath();
   ctx.stroke();
-  // Engine flame (straight flickering lines)
+  // Splayed legs with foot pads
+  ctx.beginPath();
+  ctx.moveTo(6, 3);  ctx.lineTo(12, LEG); ctx.lineTo(15, LEG);
+  ctx.moveTo(-6, 3); ctx.lineTo(-12, LEG); ctx.lineTo(-15, LEG);
+  ctx.stroke();
+  // Engine flame (straight flickering lines from the bell)
   if (thrusting && (state === "play" || state === "attract")) {
-    const f = 13 + Math.random() * 7;
+    const f = LEG + 4 + Math.random() * 6;
     ctx.beginPath();
-    ctx.moveTo(0, 8);  ctx.lineTo(0, f);
-    ctx.moveTo(2, 8);  ctx.lineTo(3, f - 3);
-    ctx.moveTo(-2, 8); ctx.lineTo(-3, f - 3);
+    ctx.moveTo(0, LEG);  ctx.lineTo(0, f);
+    ctx.moveTo(2, LEG - 1);  ctx.lineTo(3, f - 4);
+    ctx.moveTo(-2, LEG - 1); ctx.lineTo(-3, f - 4);
     ctx.stroke();
   }
   ctx.restore();
