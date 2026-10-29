@@ -22,19 +22,21 @@
     user-select: none;
   }
   /* Cabinet face: bezel art with a TRANSPARENT screen window */
-  #bezel { position: relative; line-height: 0; }
+  #bezel { position: relative; line-height: 0; background: #000; }
   #bezel::before {
     content: "";
     display: block;
     width: 100%;
-    padding-top: 100%; /* bezel.png is 1024x1024 */
+    padding-top: 100%; /* bezel art is 1440x1440 */
   }
-  /* Screen window = transparent hole in bezel.png
-     (measured: left 165/1024, top 368/1024, 692x519 — exact 4:3) */
+  /* Screen window = transparent hole in the bezel webp
+     (hole: left 342/1440, top 390/1440, 756x590). A 4:3 game window is
+     inscribed and centred in the hole (no sprite stretch); the thin top/bottom
+     gaps show the #000 bezel background, seamless with the black CRT. */
   #screen {
     position: absolute;
-    left: 16.11328125%; top: 35.9375%;
-    width: 67.578125%; height: 50.68359375%;
+    left: 23.75%; top: 27.8819%;
+    width: 52.5%; height: 39.375%;
     background: #000;
   }
   canvas {
@@ -53,6 +55,122 @@
     width: 100%; height: 100%;
     pointer-events: none;
   }
+  /* Cadet Mission backlit glow: a SMALL additive sprite (240x220) placed only
+     over the middle tile. Screen-blend ADDS warm light to the tile instead of
+     covering it. Only opacity animates (compositor-cheap), so fill rate stays
+     negligible — no full-canvas layer, no per-frame filters. */
+  #cadetGlow {
+    position: absolute;
+    left: 6.9444%; top: 36.1111%;   /* sprite box x100 y520 on the 1440 canvas */
+    width: 16.6667%; height: 15.2778%; /* 240 x 220 */
+    background: url("cadetGlow.webp") no-repeat center / 100% 100%;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    opacity: 0.74;
+    will-change: opacity;
+    z-index: 3;
+  }
+  /* Random "constant" hold per cycle: JS applies one of three loops
+     (cad2/cad4/cad6) whose steady-bright section lasts 2 / 4 / 6 s. */
+  #cadetGlow.cad2 { animation: cadetFlicker2  7.1s  1 ease-in-out; }
+  #cadetGlow.cad4 { animation: cadetFlicker4  9.1s  1 ease-in-out; }
+  #cadetGlow.cad6 { animation: cadetFlicker6 11.1s 1 ease-in-out; }
+  /* Breathing + flick pattern, three variants. The steady-bright "constant"
+     section (flat 0.96) holds 2s / 4s / 6s; JS picks a variant at random
+     each cycle so the pauses never look like a fixed loop. */
+  @keyframes cadetFlicker2 {
+    0%     { opacity: 0.74; }
+    2.54%  { opacity: 0.82; }
+    5.92%  { opacity: 0.94; }
+    7.61%  { opacity: 0.97; }
+    8.24%  { opacity: 0.60; }  /* flick */
+    8.87%  { opacity: 0.96; }
+    10.99% { opacity: 0.88; }
+    13.52% { opacity: 0.97; }
+    15.21% { opacity: 0.98; }
+    16.27% { opacity: 0.62; }  /* flick */
+    17.32% { opacity: 0.70; }  /* flick */
+    18.17% { opacity: 0.97; }
+    21.97% { opacity: 0.96; }
+    29.58% { opacity: 0.82; }
+    37.18% { opacity: 0.94; }
+    43.94% { opacity: 0.97; }
+    46.48% { opacity: 0.96; }  /* --- constant (2s) --- */
+    74.65% { opacity: 0.96; }
+    76.76% { opacity: 0.66; }  /* flick */
+    78.87% { opacity: 0.97; }
+    81.41% { opacity: 0.90; }
+    87.32% { opacity: 0.76; }
+    92.39% { opacity: 0.86; }
+    94.93% { opacity: 0.95; }
+    96.20% { opacity: 0.62; }  /* flick */
+    97.04% { opacity: 0.92; }
+    97.89% { opacity: 0.68; }  /* flick */
+    99.16% { opacity: 0.80; }
+    100%   { opacity: 0.74; }
+  }
+  @keyframes cadetFlicker4 {
+    0%     { opacity: 0.74; }
+    1.98%  { opacity: 0.82; }
+    4.62%  { opacity: 0.94; }
+    5.93%  { opacity: 0.97; }
+    6.43%  { opacity: 0.60; }  /* flick */
+    6.92%  { opacity: 0.96; }
+    8.57%  { opacity: 0.88; }
+    10.55% { opacity: 0.97; }
+    11.87% { opacity: 0.98; }
+    12.69% { opacity: 0.62; }  /* flick */
+    13.52% { opacity: 0.70; }  /* flick */
+    14.18% { opacity: 0.97; }
+    17.14% { opacity: 0.96; }
+    23.08% { opacity: 0.82; }
+    29.01% { opacity: 0.94; }
+    34.29% { opacity: 0.97; }
+    36.26% { opacity: 0.96; }  /* --- constant (4s) --- */
+    80.22% { opacity: 0.96; }
+    81.87% { opacity: 0.66; }  /* flick */
+    83.52% { opacity: 0.97; }
+    85.49% { opacity: 0.90; }
+    90.11% { opacity: 0.76; }
+    94.07% { opacity: 0.86; }
+    96.04% { opacity: 0.95; }
+    97.03% { opacity: 0.62; }  /* flick */
+    97.69% { opacity: 0.92; }
+    98.35% { opacity: 0.68; }  /* flick */
+    99.34% { opacity: 0.80; }
+    100%   { opacity: 0.74; }
+  }
+  @keyframes cadetFlicker6 {
+    0%     { opacity: 0.74; }
+    1.62%  { opacity: 0.82; }
+    3.78%  { opacity: 0.94; }
+    4.86%  { opacity: 0.97; }
+    5.27%  { opacity: 0.60; }  /* flick */
+    5.68%  { opacity: 0.96; }
+    7.03%  { opacity: 0.88; }
+    8.65%  { opacity: 0.97; }
+    9.73%  { opacity: 0.98; }
+    10.41% { opacity: 0.62; }  /* flick */
+    11.08% { opacity: 0.70; }  /* flick */
+    11.62% { opacity: 0.97; }
+    14.05% { opacity: 0.96; }
+    18.92% { opacity: 0.82; }
+    23.78% { opacity: 0.94; }
+    28.11% { opacity: 0.97; }
+    29.73% { opacity: 0.96; }  /* --- constant (6s) --- */
+    83.78% { opacity: 0.96; }
+    85.14% { opacity: 0.66; }  /* flick */
+    86.49% { opacity: 0.97; }
+    88.11% { opacity: 0.90; }
+    91.89% { opacity: 0.76; }
+    95.14% { opacity: 0.86; }
+    96.76% { opacity: 0.95; }
+    97.57% { opacity: 0.62; }  /* flick */
+    98.11% { opacity: 0.92; }
+    98.65% { opacity: 0.68; }  /* flick */
+    99.46% { opacity: 0.80; }
+    100%   { opacity: 0.74; }
+  }
   #hint {
     position: fixed; bottom: 8px; left: 0; right: 0;
     text-align: center; color: #556; font-size: 12px;
@@ -65,7 +183,8 @@
     <canvas id="game" width="580" height="435"></canvas>
     <canvas id="fx" width="580" height="435"></canvas>
   </div>
-  <img id="panel" src="bezel.webp" alt="" onerror="this.onerror=null;this.src='bezel.png'">
+  <img id="panel" src="bezel.webp" alt="">
+  <div id="cadetGlow"></div>
 </div>
 <div id="hint">&uarr;/W thrust &middot; &larr;/&rarr; or A/D rotate &middot; X abort &middot; tap to start &middot; drag: up = thrust, side = rotate &middot; P pause &middot; M mute &middot; C CRT: <span id="crtlabel">Glass</span></div>
 <script>
@@ -76,8 +195,8 @@
 // the first vector arcade game.
 //   - HUD: SCORE / TIME / FUEL left, ALTITUDE / HORIZONTAL
 //     SPEED / VERTICAL SPEED (with direction arrows) right
-//   - Jagged straight-line moonscape, flat pads with 2X..5X
-//     multipliers (narrower pad = bigger multiplier)
+//   - Jagged straight-line moonscape, flat pads with 2X/4X/5X tiers
+//     (narrower pad = bigger multiplier)
 //   - View zooms in to a close-up as you near the surface
 //   - Fuel pool persists across missions; +50 on a good landing
 //   - Good landing 50 pts x multiplier, hard 15 x, crash 5
@@ -91,7 +210,7 @@ cv.width = W; cv.height = H;
 const ctx = cv.getContext("2d");
 
 // Scale the cabinet to fit the viewport (same approach as PONG).
-const PANEL_W = 1024, PANEL_H = 1024; // bezel.png
+const PANEL_W = 1440, PANEL_H = 1440; // bezel art canvas size
 const bezel = document.getElementById("bezel");
 function fitCanvas() {
   const scale = Math.min(1, window.innerWidth / PANEL_W, window.innerHeight / PANEL_H);
@@ -101,21 +220,26 @@ window.addEventListener("resize", fitCanvas);
 fitCanvas();
 
 // ---------------- Constants ----------------
-const WORLD_W = 4000;          // terrain span, world units (scrolling world, like the arcade original)
-const GRAV = 28;               // world units / s^2
-const THRUST = 62;             // main engine accel along nose
+const WORLD_W = W;             // single-screen world: the whole level fits on the screen (no scrolling)
+const WORLD_H = H;
+const WORLD_MARGIN = 16;       // ship can't cross the screen edges
+const GRAV = 8;                // world units / s^2
+const THRUST = 23;             // main engine accel along nose
 const ROT_SPEED = 2.6;         // rad/s while a rotate key is held
 const MAX_TILT = 1.40;         // ~80 deg, arcade limited to +-90
 const FUEL_START = 750;        // arcade default
 const BURN_THRUST = 30;        // fuel / s while main engine on
 const BURN_ROT = 4;            // fuel / s while rotating
 const ABORT_COST = 120;        // arcade: 120..180
-const SHIP_SCALE = 0.75;       // ship sprite scale (25% smaller)
+const SHIP_SCALE = 0.30;      // small ship — tiny against the moonscape, like the arcade
 const LEG = 14.25 * SHIP_SCALE; // center -> feet, world units
-const MAX_SPEED = 260;
-const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.0;
-const ZOOM_IN_ALT = 150;       // altitude below this -> close-up (ground in view well before this)
-const ZOOM_OUT_ALT = 260;      // hysteresis: climb above this -> wide again
+const PAD_INSET = 12 * SHIP_SCALE; // landing tolerance: ship center must sit this far in from the pad edge (scales with the ship)
+const MAX_SPEED = 140;
+const ZOOM_FAR = 1.0, ZOOM_NEAR = 2.5, ZOOM_CLOSE = 4.5;
+const ZOOM_IN_ALT = 120;       // altitude below this -> hard cut to the close-up
+const ZOOM_OUT_ALT = 200;      // hysteresis: climb above this -> wide again
+const CLOSE_IN_ALT = 60;       // altitude below this -> final 4.5x close-up
+const CLOSE_OUT_ALT = 100;     // hysteresis: climb above this -> back to 2.5x
 
 // ---------------- Game State ----------------
 let state = "attract"; // attract | ready | play | result | gameover
@@ -130,13 +254,13 @@ let resultText = [];
 let resultCrashed = false;
 
 // Lander
-let lander = { x: 2000, y: -200, vx: 0, vy: 0, angle: 0 };
+let lander = { x: 20, y: 52, vx: 0, vy: 0, angle: 0 };
 let thrusting = false;
 let thrustT = 0;               // sustained-thrust timer (long flame state)
 
-// Camera (zoom)
+// Camera (static wide view -> locked close-up region)
 let camScale = ZOOM_FAR, camTarget = ZOOM_FAR;
-let camX = lander.x, camY = lander.y;
+let camX = W / 2, camY = H / 2;
 
 // Input
 let keyThrust = false, keyRotL = false, keyRotR = false;
@@ -147,64 +271,112 @@ let abortHeld = false;
 // Piecewise-linear polyline of STRAIGHT segments (no curves, like the
 // original vector hardware). Pad segments are flat and carry a multiplier.
 let terrain = { pts: [], segs: [] };
+// Pad tiers (the old 4u "2X" pad was cut): width in ship-units + point multiplier.
+//   5X = 1u (score 5), 4X = 2u (score 4), 2X = 3u (score 2 — was the 3X pad).
+const PAD_TIER = { 5: { u: 1, pts: 5 }, 4: { u: 2, pts: 4 }, 2: { u: 3, pts: 2 } };
 let stars = [];
 
 function rand(a, b) { return a + Math.random() * (b - a); }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 function genTerrain(m) {
-  // Difficulty ramps with mission (capped): steeper ranges, narrower pads
+  // Single-screen world, like the arcade original: the entire moonscape —
+  // mountains AND every pad — fits on the one screen. Relief lives in the
+  // lower half of the view; peaks never rise above the middle.
   const diff = Math.min(m, 8);
-  const steep = 0.65 + 0.10 * diff;
-  const padShrink = Math.max(0.55, 1 - 0.07 * (diff - 1));
+  const GROUND_TOP = 224, GROUND_BOT = 406;
+  const UNIT = 28.5 * SHIP_SCALE; // 1 pad-unit = 1 ship-width (foot-to-foot is 28.5 * SHIP_SCALE) — pads shrink with the ship
 
-  // Plan pad slots across the world (not at the very edges)
-  const nPads = 20 + (Math.random() < 0.5 ? 4 : 0);  // pads ~every 1/4 screen (arcade density)
+  // Three pad tiers (see PAD_TIER). 4-pad levels repeat the big 2X pad;
+  // 3-pad levels use all three tiers.
+  const nPads = 3 + (Math.random() < 0.5 ? 1 : 0);
+  const mults = nPads === 4 ? [5, 4, 2, 2] : [5, 4, 2];
+  for (let i = mults.length - 1; i > 0; i--) {   // shuffle so size doesn't telegraph position
+    const j = Math.floor(Math.random() * (i + 1));
+    [mults[i], mults[j]] = [mults[j], mults[i]];
+  }
+  const padWidth = (m) => PAD_TIER[m].u * UNIT;  // width from the tier table
+
+  const cell = WORLD_W / (nPads + 1);
   const slots = [];
   for (let i = 0; i < nPads; i++) {
-    const cx = (i + 1) / (nPads + 1) * WORLD_W;
-    slots.push({ x: clamp(cx + rand(-40, 40), 150, WORLD_W - 150),
-                 w: 0, mult: 0, used: false });
+    slots.push({
+      x: clamp(cell * (i + 1) + rand(-cell * 0.15, cell * 0.15), 60, WORLD_W - 60),
+      w: padWidth(mults[i]),
+      y: 0,
+      mult: mults[i],
+    });
   }
-  // Wider pads get smaller multipliers: 2X .. 5X
-  const widths = slots.map(() => rand(0, 1)).sort((a, b) => b - a);  // small/med/large pads
-  const mults = [2, 3, 4, 5];
-  slots.forEach((s, i) => {
-    s.w = Math.max(44, (48 + widths[i] * 42) * padShrink);
-    s.mult = mults[i % mults.length];
-  });
+  slots.sort((a, b) => a.x - b.x);
 
+  // One jagged slope segment: step right, mostly keep the current direction.
+  function slopeStep(x, y, dir) {
+    const dx = rand(16, 36);
+    // Turn back BEFORE hitting a bound so peaks stay pointy — a flat top can
+    // only form by pinning at the bound for several steps
+    if (dir < 0 && y - GROUND_TOP < 12) dir = 1;
+    if (dir > 0 && GROUND_BOT - y < 12) dir = -1;
+    if (Math.random() < 0.25) {
+      const nd = -dir;
+      // never flip back into a bound we're sitting on
+      if (!(y <= GROUND_TOP + 1 && nd < 0) && !(y >= GROUND_BOT - 1 && nd > 0)) dir = nd;
+    }
+    let mag = rand(14, 34);
+    if (Math.random() < 0.35) mag += rand(12, 28); // occasional big push
+    y = clamp(y + dir * mag * (0.85 + 0.12 * diff), GROUND_TOP, GROUND_BOT);
+    if (y === GROUND_TOP && dir < 0) dir = 1;
+    if (y === GROUND_BOT && dir > 0) dir = -1;
+    return { x: Math.min(WORLD_W, x + dx), y, dir };
+  }
+  function walkJagged() {
+    const pts = [];
+    let st = { x: 0, y: rand(GROUND_TOP + 10, GROUND_BOT - 30),
+               dir: Math.random() < 0.5 ? -1 : 1 };
+    pts.push({ x: st.x, y: st.y });
+    while (st.x < WORLD_W) {
+      st = slopeStep(st.x, st.y, st.dir);
+      pts.push({ x: st.x, y: st.y });
+    }
+    return pts;
+  }
+  // Probe the relief first so each pad sits in a local DIP (the lowest point
+  // near its slot) — valley floors and shelves notched into the slope, never
+  // table-topped on a peak.
+  const probe = walkJagged();
+  const probeY = (px) => {
+    for (let i = 0; i < probe.length - 1; i++) {
+      const a = probe[i], b = probe[i + 1];
+      if (px <= b.x) {
+        return a.y + (b.x > a.x ? (px - a.x) / (b.x - a.x) * (b.y - a.y) : 0);
+      }
+    }
+    return probe[probe.length - 1].y;
+  };
+  for (const s of slots) {
+    const dip = Math.max(probeY(s.x - 60), probeY(s.x), probeY(s.x + 60)); // max y = lowest nearby
+    s.y = clamp(dip + rand(0, 18), GROUND_TOP + 6, GROUND_BOT - 10);
+  }
+
+  // Final walk: same jagged relief, inserting each pad as a short sloping
+  // ramp into its flat shelf (never a wall).
   const pts = [];
   let x = 0;
-  let y = rand(160, 260);
+  let y = rand(GROUND_TOP + 10, GROUND_BOT - 30);
   let dir = Math.random() < 0.5 ? -1 : 1;  // slope direction w/ persistence
   pts.push({ x, y });
   let si = 0;
   while (x < WORLD_W) {
-    // Start a pad when we reach its slot
-    let slot = null;
-    if (si < slots.length && x + 40 >= slots[si].x) slot = slots[si];
-    if (slot && !slot.used) {
-      slot.used = true;
-      si++;
+    if (si < slots.length && x >= slots[si].x - slots[si].w / 2) {
+      const s = slots[si++];
       const x0 = x;
-      x = Math.min(WORLD_W, x0 + slot.w);
-      // Pad = flat notch in the slope flow: same y at both ends, always level
-      pts.push({ x, y, pad: slot.mult });
+      const ramp = rand(26, 48);            // sloping approach to the shelf
+      const xr = Math.min(x0 + ramp, WORLD_W - 1);
+      pts.push({ x: xr, y: s.y });          // top of the ramp
+      x = Math.min(WORLD_W, xr + s.w);
+      pts.push({ x, y: s.y, pad: s.mult }); // flat pad
+      y = s.y;
     } else {
-      const dx = rand(18, 40);
-      // Real peaks, not a flat line: mostly keep climbing/falling in the
-      // same direction (long straight slopes like the arcade), occasional
-      // reversal and big push
-      if (Math.random() < 0.45 && y > 120 && y < 380) dir = -dir;  // don't flip back into a bound
-      let mag = rand(30, 90);
-      if (Math.random() < 0.40) mag += rand(50, 110);
-      let dy = dir * mag * steep;
-      // (pads are the only flat surfaces: the rest is steep relief)
-      y = clamp(y + dy, 120, 380);
-      if (y === 120 && dir < 0) dir = 1;   // hit a bound: turn back, no flat pins
-      if (y === 380 && dir > 0) dir = -1;
-      x = Math.min(WORLD_W, x + dx);
+      ({ x, y, dir } = slopeStep(x, y, dir));
       pts.push({ x, y });
     }
   }
@@ -214,13 +386,11 @@ function genTerrain(m) {
     const a = pts[i], b = pts[i + 1];
     segs.push({ x0: a.x, x1: b.x, y: a.y, pad: b.pad || 0 });
   }
-  let low = 0;
-  for (const p of pts) low = Math.max(low, p.y); // lowest surface point
-  terrain = { pts, segs, low };
+  terrain = { pts, segs };
 
-  // Star field (sky-space, parallax when the camera moves)
+  // Star field (parallax when the camera zooms)
   stars = [];
-  for (let i = 0; i < Math.round(WORLD_W * 0.14); i++) {
+  for (let i = 0; i < Math.round(WORLD_W * 0.13); i++) {
     stars.push({ x: rand(0, WORLD_W), y: rand(6, H - 60), r: Math.random() < 0.85 ? 1 : 2 });
   }
 }
@@ -244,6 +414,7 @@ function groundYat(x) {
     const mid = (lo + hi) >> 1;
     if (p[mid].x < x) lo = mid + 1; else hi = mid;
   }
+  if (lo === 0) return p[0].y;   // left edge of the world
   const a = p[lo - 1], b = p[lo];
   if (b.x <= a.x) return a.y;
   const t = (x - a.x) / (b.x - a.x);
@@ -253,22 +424,60 @@ function altitude() {
   return Math.max(0, groundYat(lander.x) - (lander.y + LEG));
 }
 
+// ---------------- Camera ----------------
+// Arcade camera model: the wide view is completely static — it frames the whole
+// one-screen level and never moves. Near the surface it hard-cuts to a 2.5x
+// close-up that locks onto a region (4.5x for the landing); the region stays
+// fixed until the ship leaves it left, right, or keeps descending, then it
+// re-centers on a new one.
+function resetCamera() {
+  camScale = ZOOM_FAR; camTarget = ZOOM_FAR;
+  camX = W / 2; camY = H / 2;
+}
+
+function updateCamera(dt) {
+  if (state === "play") {
+    const alt = altitude();
+    if (alt < CLOSE_IN_ALT) camTarget = ZOOM_CLOSE;
+    else if (camTarget === ZOOM_CLOSE && alt < CLOSE_OUT_ALT) { /* hold 3x */ }
+    else if (alt < ZOOM_IN_ALT) camTarget = ZOOM_NEAR;
+    else if (alt > ZOOM_OUT_ALT) camTarget = ZOOM_FAR;
+  }
+  if (camScale !== camTarget) {
+    camScale = camTarget;   // hard cut, no easing
+    const halfW = W / (2 * camScale), halfH = H / (2 * camScale);
+    if (camScale > ZOOM_FAR) {
+      // Frame the ship near centre so the ground below is in view. Only the
+      // TOP edge is clamped — the bottom may run off the screen (below the
+      // ridge is black fill anyway, so pinning it to the screen bottom just
+      // left dead space under the ground).
+      camX = clamp(lander.x, halfW, WORLD_W - halfW);
+      camY = Math.max(halfH, lander.y + 0.2 * halfH);
+    } else {
+      camX = W / 2; camY = H / 2;
+    }
+  } else if (camScale > ZOOM_FAR) {
+    // Region-locked: re-center only when the ship leaves left, right, or
+    // descends out the bottom (climbing up does not move the view)
+    const halfW = W / (2 * camScale), halfH = H / (2 * camScale);
+    const M = 38;
+    if (lander.x < camX - halfW + M || lander.x > camX + halfW - M ||
+        lander.y > camY + halfH - M) {
+      camX = clamp(lander.x, halfW, WORLD_W - halfW);
+      camY = Math.max(halfH, lander.y + 0.2 * halfH);
+    }
+  }
+}
+
 // ---------------- Missions ----------------
 function spawnLander() {
-  // Bias spawn toward a pad region so the first mission is learnable
-  const pads = terrain.segs.filter(s => s.pad);
-  const target = pads.length ? pads[Math.floor(Math.random() * pads.length)] : null;
-  const sx = target ? clamp((target.x0 + target.x1) / 2 + rand(-250, 250), 140, WORLD_W - 140)
-                    : rand(300, WORLD_W - 300);
-  lander.x = sx;
-  // Spawn high: the camera pins to the moonscape and the ship falls in
-  // from above the top of the screen (like the arcade original)
-  lander.y = groundYat(sx) - rand(320, 460);
-  lander.vx = rand(-14, 14);
-  lander.vy = rand(4, 18);
+  // Arcade: the ship starts at the top-left corner and drifts in sideways
+  lander.x = WORLD_MARGIN + 4;
+  lander.y = 52;
+  lander.vx = rand(24, 42);
+  lander.vy = rand(0, 6);
   lander.angle = 0;
-  camScale = ZOOM_FAR; camTarget = ZOOM_FAR;
-  camX = lander.x; camY = lander.y;
+  resetCamera();
   missionTime = 0;
   thrustT = 0;
   lowFuelT = 0;
@@ -295,7 +504,7 @@ function abort() {
   setTimeout(() => abortHeld = false, 900);
   lander.angle = 0;        // straighten
   lander.vx = 0;           // kill sideways motion
-  lander.vy = -130;        // shove up, off the surface
+  lander.vy = -35;         // modest lift off the surface (tamed)
   fuel = Math.max(0, fuel - ABORT_COST);
   sfx.abort();
 }
@@ -327,7 +536,7 @@ function updatePlay(dt) {
   // Integrate with substeps so fast landers can't tunnel through cliffs
   const steps = 4, h = dt / steps;
   for (let i = 0; i < steps; i++) {
-    lander.x = clamp(lander.x + lander.vx * h, 40, WORLD_W - 40);
+    lander.x = clamp(lander.x + lander.vx * h, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
     lander.y += lander.vy * h;
     const gy = groundYat(lander.x);
     if (lander.y + LEG >= gy) {
@@ -337,11 +546,6 @@ function updatePlay(dt) {
     }
   }
   missionTime += dt;
-
-  // Zoom: close-up when the surface is near
-  const alt = altitude();
-  camTarget = alt < ZOOM_IN_ALT ? ZOOM_NEAR : alt > ZOOM_OUT_ALT ? ZOOM_FAR : camTarget;
-  camScale += (camTarget - camScale) * Math.min(1, dt * 3.2);
 
   // Low-fuel warning (arcade: high beep on almost-depleted tanks)
   if (fuel > 0 && fuel < 60) {
@@ -354,11 +558,11 @@ let lowFuelT = 0;
 function onContact() {
   const seg = segAt(lander.x);
   const onPad = seg.pad > 0 &&
-    lander.x >= seg.x0 + 6 && lander.x <= seg.x1 - 6;
+    lander.x >= seg.x0 + PAD_INSET && lander.x <= seg.x1 - PAD_INSET;
   const vDown = lander.vy;
   if (onPad && vDown <= 10 && Math.abs(lander.vx) <= 12) {
     // GOOD LANDING
-    const pts = 50 * seg.pad;
+    const pts = 50 * PAD_TIER[seg.pad].pts;
     score += pts;
     fuel = Math.min(1400, fuel + 50); // arcade fuel bonus
     lander.vx = 0; lander.vy = 0;
@@ -367,7 +571,7 @@ function onContact() {
     endMission(false);
   } else if (onPad && vDown <= 22 && Math.abs(lander.vx) <= 28) {
     // HARD LANDING
-    const pts = 15 * seg.pad;
+    const pts = 15 * PAD_TIER[seg.pad].pts;
     score += pts;
     lander.vx = 0; lander.vy = 0;
     resultText = ["HARD LANDING", "+" + pts + " PTS"];
@@ -410,6 +614,7 @@ function updateParticles(dt) {
 // ---------------- Update ----------------
 function update(dt) {
   updateParticles(dt);
+  updateCamera(dt);   // runs in every state
   if (state === "attract") {
     // Idle drift for the attract screen
     thrusting = false;
@@ -472,6 +677,18 @@ function drawTerrain() {
     else ctx.lineTo(sx, sy);
   }
   ctx.stroke();
+  // Opaque ground: fill below the ridge so the star field stays hidden
+  // behind the mountains
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const sx = w2sX(pts[i].x), sy = w2sY(pts[i].y);
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  }
+  ctx.lineTo(W + 80, H + 80);
+  ctx.lineTo(-80, H + 80);
+  ctx.closePath();
+  ctx.fill();
   // Pad shelves: thicker + glow pass so landing zones pop against the relief
   ctx.lineWidth = 3;
   ctx.shadowColor = "#fff";
@@ -498,8 +715,8 @@ function drawTerrain() {
     const mx = w2sX((s.x0 + s.x1) / 2);
     if (mx < -30 || mx > W + 30) continue;
     const my = w2sY(s.y);
-    if (my < -10 || my > H + 10) continue;
-    ctx.fillText(s.pad + "X", mx, my - 6);
+    if (my < -20 || my > H + 20) continue;
+    ctx.fillText(s.pad + "X", mx, my + 12);
   }
 }
 
@@ -695,16 +912,7 @@ function render() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
 
-  // Camera is pinned to the moonscape while the ship is high; once the
-  // surface is near it hands off to the ship so it stays on screen
-  const halfW = W / (2 * camScale), halfH = H / (2 * camScale);
-  camX = clamp(lander.x, halfW, WORLD_W - halfW);
-  // MAX: ship high -> camera pins to the local ground (ship falls in from
-  // the top of the screen, moonscape always in view, like the arcade);
-  // ship low -> camera centers on the ship so it stays on screen.
-  camY = Math.max(lander.y + 0.05 * H / camScale,
-                  groundYat(lander.x) - halfH + 28);
-
+  // Camera is advanced in update() (see updateCamera).
   drawStars();
   drawTerrain();
 
@@ -940,27 +1148,60 @@ function beep(freq, dur, type, vol, slideTo) {
   o.connect(g); g.connect(a.destination);
   o.start(t); o.stop(t + dur + 0.02);
 }
-// Continuous engine rumble (low sawtooth, gain follows thrust)
+// Continuous engine sound: filtered white-noise gas thruster. Master gain
+// follows the thrust state. Two presets — "arcade" is the ACCEPTED keeper;
+// "deep" is the chosen really-low & loud take. Flip ENGINE_PRESET to switch.
+const ENGINE_PRESET = "deep";   // "arcade" | "deep"
+const ENGINE_CFG = {
+  arcade:  { bp: 450, bpQ: 0.7, lp: 260, body: 0.6, scratch: 0,   vol: 0.15 }, // ACCEPTED baseline
+  deep:    { bp: 300, bpQ: 1.4, lp: 120, body: 0.7, scratch: 0, vol: 0.25 }, // chosen: really-low & loud, smooth (set scratch>0 to re-enable chop)
+};
 let engine = null;
 function ensureEngine() {
   const a = audio(); if (!a || engine) return;
+  const c = ENGINE_CFG[ENGINE_PRESET] || ENGINE_CFG.arcade;
   try {
-    const o = a.createOscillator(), o2 = a.createOscillator();
-    const g = a.createGain(), g2 = a.createGain();
-    o.type = "sawtooth"; o.frequency.value = 52;
-    o2.type = "square"; o2.frequency.value = 104;
-    g.gain.value = 0; g2.gain.value = 0.35;
-    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(a.destination);
-    o.start(); o2.start();
-    engine = { g, o, o2 };
+    // Looping white-noise buffer = the "gas"
+    const len = Math.floor(a.sampleRate * 2);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = a.createBufferSource(); src.buffer = buf; src.loop = true;
+
+    const g = a.createGain(); g.gain.value = 0;   // master, follows thrust
+    g.connect(a.destination);
+
+    // Low "huff/growl" band tap + sub-bass body tap (body stays smooth for weight)
+    const bp = a.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = c.bp; bp.Q.value = c.bpQ;
+    const hissG = a.createGain(); hissG.gain.value = 1.5;
+    const lp = a.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = c.lp;
+    const bodyG = a.createGain(); bodyG.gain.value = c.body;
+    src.connect(bp); bp.connect(hissG);
+    src.connect(lp); lp.connect(bodyG); bodyG.connect(g);
+
+    if (c.scratch > 0) {
+      // Scratchy AM: a low square-wave LFO chops the band tap -> gritty sputter
+      const lfo = a.createOscillator(); lfo.type = "square"; lfo.frequency.value = c.scratch;
+      const depth = a.createGain(); depth.gain.value = 0.31;
+      const mod = a.createGain(); mod.gain.value = 0.55;
+      lfo.connect(depth); depth.connect(mod.gain); lfo.start();
+      hissG.connect(mod); mod.connect(g);
+    } else {
+      hissG.connect(g);
+    }
+
+    src.start();
+    engine = { g, vol: c.vol };
   } catch (e) {}
 }
 function setEngine(on) {
   if (!engine) return;
   const a = audio(); if (!a) return;
   const t = a.currentTime;
+  const target = (on && !muted) ? engine.vol : 0.0001;
   engine.g.gain.cancelScheduledValues(t);
-  engine.g.gain.setTargetAtTime(on && !muted ? 0.10 : 0.0001, t, 0.04);
+  // snappy "valve open" attack, gentle "gas easing off" release
+  engine.g.gain.setTargetAtTime(target, t, on ? 0.03 : 0.09);
 }
 function noiseBurst(dur, vol, lowpass) {
   if (muted) return;
@@ -1055,8 +1296,9 @@ window.addEventListener("pointerdown", primeAudio, { passive: true });
 // ---------------- Main loop ----------------
 genTerrain(1);
 spawnLander(); // scenery for the attract screen
-lander.x = 150;              // left of the title block (camera clamps at W/2)
-lander.y = groundYat(150) - 150; // hover above the local range, clear of the title
+lander.x = 180;              // left of the title block
+lander.y = 110;              // hover in the upper area, clear of the relief
+resetCamera();
 
 function frame(now) {
   let dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -1069,6 +1311,24 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+</script>
+<script>
+// Cadet glow: each time a loop finishes, randomly play a variant whose
+// steady-bright "constant" hold is 3 / 4 / 5 s (cad3 / cad4 / cad5). The
+// breathing + flick pattern is identical; only the pause length varies, so
+// it never reads as a fixed repeating loop.
+(function () {
+  var el = document.getElementById("cadetGlow");
+  if (!el) return;
+  var names = ["cad2", "cad4", "cad6"];
+  function pick() {
+    for (var i = 0; i < names.length; i++) el.classList.remove(names[i]);
+    void el.offsetWidth; // reflow so re-adding the same name restarts it
+    el.classList.add(names[(Math.random() * names.length) | 0]);
+  }
+  el.addEventListener("animationend", pick);
+  pick(); // kick off
+})();
 </script>
 </body>
 </html>
